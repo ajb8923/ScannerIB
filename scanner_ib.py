@@ -96,13 +96,15 @@ def hhmm(t): return dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime("%H:%
 
 def msg(s, r, t, pending):
     lg = t["d"] == "L"
-    return (f"{'🟢 COMPRA' if lg else '🔴 VENTA'} · {s['label']}\n"
+    return (f"📊 SCANNER IB\n"
+            f"{'🟢 COMPRA' if lg else '🔴 VENTA'} · {s['label']}\n"
             f"Setup {'A · ruptura' if t['st'] == 'A' else 'B · fallo al 50%'}\n"
             f"Vela señal: {hhmm(t['sig_t'])} (Londres)\n"
             f"IB: H {r['H']} · 50% {r['M']} · L {r['L']}\n"
             f"Entrada: {'≈' if pending else ''}{t['e']} (apertura siguiente vela)\n"
             f"Stop: {t['sl']} · Objetivo: {t['tp']}\n"
             f"Riesgo: {t['risk']} pts")
+
 
 def send(text):
     if not (TOKEN and CHAT): print(text); return True
