@@ -17,8 +17,8 @@ input[type=number]{width:68px}
 button,.btn{cursor:pointer}
 .tg{display:flex;align-items:center;gap:5px;color:var(--mu)}
 #wrap{position:relative;height:480px}
-#chart{position:absolute;inset:0}
-#ov{position:absolute;left:0;top:0;pointer-events:none}
+#chart{position:absolute;inset:0;z-index:0}
+#ov{position:absolute;left:0;top:0;pointer-events:none;z-index:5}
 .leg{font-size:12px;color:var(--mu);padding:4px 6px 8px}
 .leg b{font-weight:500}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
@@ -57,7 +57,7 @@ tr.c{cursor:pointer}tr.sel{background:#13213a}
 </div>
 <div class="card" id="today">Cargando…</div>
 <div class="card" style="padding:6px">
-  <div class="leg"><b style="color:#60a5fa">━ IB H / L</b> · <b style="color:#94a3b8">┄ 50%</b> · <b style="color:#a78bfa">━ <span id="vwl">VWAP</span></b> · Toca una posición y arrastra sus tiradores</div>
+  <div class="leg"><b style="color:#60a5fa">━ IB H / L</b> · <b style="color:#60a5fa">━ 50%</b> · <b style="color:#a78bfa">━ <span id="vwl">VWAP</span></b> · Arrastra el borde verde (TP) o rojo (SL) de cada operación</div>
   <div id="wrap"><div id="chart"></div><canvas id="ov"></canvas></div>
 </div>
 <div class="card" id="edit"></div>
@@ -281,9 +281,8 @@ function paint(){
     if(x0==null||x1==null||x1<-60||x0>pw+60)return;
     let ibLast=g[0][1][0];g.forEach(x=>{if(x[1][5]<ibe)ibLast=x[1][0]});
     const xi=X(ibLast),yH=Y(r.H),yL=Y(r.L),yM=Y(r.M);
-    ctx.fillStyle='rgba(59,130,246,0.10)';ctx.fillRect(x0-bs,yH,xi-x0+2*bs,yL-yH);
-    line(x0-bs,x1+bs,yH,'#3b82f6',[]);line(x0-bs,x1+bs,yL,'#3b82f6',[]);line(x0-bs,x1+bs,yM,'#94a3b8',[5,4]);
-    if(x1-x0>160){txt('IB H '+f(r.H),x0,yH-5,'#60a5fa');txt('50% '+f(r.M),x0,yM-5,'#94a3b8');txt('IB L '+f(r.L),x0,yL+13,'#60a5fa')}
+    line(x0-bs,x1+bs,yH,'#3b82f6',[]);line(x0-bs,x1+bs,yL,'#3b82f6',[]);line(x0-bs,x1+bs,yM,'#3b82f6',[]);
+    if(x1-x0>160){txt('IB H '+f(r.H),x0,yH-5,'#60a5fa');txt('50% '+f(r.M),x0,yM-5,'#60a5fa');txt('IB L '+f(r.L),x0,yL+13,'#60a5fa')}
     r.trades.forEach(t=>drawPos(t,g,X,Y,bs))});
   ctx.restore()}
 
@@ -294,12 +293,15 @@ function loop(){
   if(s!==sig){sig=s;paint()}
   requestAnimationFrame(loop)}
 
-function hitHandle(x,y){if(!selTr)return null;const b=boxes.find(b=>b.t===selTr);if(!b)return null;
-  if(x<b.xa-24||x>b.xb+24)return null;if(Math.abs(y-b.yt)<16)return 'tp';if(Math.abs(y-b.ys)<16)return 'sl';return null}
+function hitHandle(x,y){
+  const list=boxes.slice().sort((a,b)=>(b.t===selTr)-(a.t===selTr));
+  for(const b of list){if(x<b.xa-12||x>b.xb+12)continue;
+    if(Math.abs(y-b.yt)<14)return{t:b.t,k:'tp'};if(Math.abs(y-b.ys)<14)return{t:b.t,k:'sl'}}
+  return null}
 function relXY(e){const r=wrap.getBoundingClientRect();return[e.clientX-r.left,e.clientY-r.top]}
 
-wrap.addEventListener('pointerdown',e=>{const [x,y]=relXY(e),k=hitHandle(x,y);if(!k)return;
-  e.stopPropagation();e.preventDefault();drag={k,tp:selTr.tp,sl:selTr.sl};
+wrap.addEventListener('pointerdown',e=>{const [x,y]=relXY(e),h=hitHandle(x,y);if(!h)return;
+  e.stopPropagation();e.preventDefault();if(h.t!==selTr)select(h.t);drag={k:h.k,tp:h.t.tp,sl:h.t.sl};
   chart.applyOptions({handleScroll:false,handleScale:false})},true);
 ['touchstart','touchmove','mousedown','mousemove'].forEach(ev=>wrap.addEventListener(ev,e=>{if(drag){e.stopPropagation();if(e.cancelable)e.preventDefault()}},{capture:true,passive:false}));
 window.addEventListener('pointermove',e=>{if(!drag||!selTr)return;const [,y]=relXY(e);let p=cs.coordinateToPrice(y);if(p==null)return;
