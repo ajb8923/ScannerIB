@@ -36,7 +36,7 @@ tr.c{cursor:pointer}tr.sel{background:#13213a}
 <div class="card row">
   <select id="sym"></select>
   <button id="prev">◀</button><span id="dlab"></span><button id="next">▶</button>
-  <button id="rel">↻</button>
+  <button id="rel">↻</button><button id="fit">Ajustar vista</button>
 </div>
 <div class="card row">
   <label class="tg"><input type="checkbox" id="fA" checked>Setup A</label>
@@ -165,6 +165,7 @@ function pick(reset){
   S.A=atr(S.bars,14);
   cs.setData(S.bars.map(b=>({time:b[0],open:b[1],high:b[2],low:b[3],close:b[4]})));
   vw.setData(vwapData());
+  autoY();
   $('vwl').textContent=S.bars.some(b=>b[7]>0)?'VWAP':'VWAP (sin volumen: media de precio)';
   if(reset){selTr=null;selId=null}
   compute();
@@ -187,7 +188,7 @@ function compute(){
   saveOv();renderToday();renderStats();renderTable();renderEdit();sig=''}
 
 function goDay(di,keepView){day=Math.max(0,Math.min(di,S.days.length-1));$('dlab').textContent=S.days[day];
-  if(keepView)return;const g=G[day];if(!g.length)return;
+  if(keepView)return;const g=G[day];if(!g.length)return;autoY();
   chart.timeScale().setVisibleRange({from:g[0][1][0],to:g[g.length-1][1][0]})}
 
 function renderToday(){
@@ -322,6 +323,8 @@ $('fV').onchange=()=>vw.applyOptions({visible:$('fV').checked});
 $('prev').onclick=()=>goDay(day-1);
 $('next').onclick=()=>goDay(day+1);
 $('rel').onclick=()=>load(true);
+$('fit').onclick=()=>goDay(day);
+function autoY(){chart.priceScale('right').applyOptions({autoScale:true})}
 $('tb').onclick=e=>{const tr=e.target.closest('tr');if(!tr)return;const t=TR[+tr.dataset.i];
   select(t);goDay(t.di);$('wrap').scrollIntoView({behavior:'smooth',block:'center'})};
 $('exp').onclick=()=>{const b=new Blob([JSON.stringify(OV,null,1)],{type:'application/json'});
