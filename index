@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Scanner IB</title>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+:root{--bg:#060d1a;--card:#0b1527;--bd:#1b2a44;--tx:#dbe4f0;--mu:#7f8ea8;--up:#22c55e;--dn:#ef4444;--am:#f59e0b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px -apple-system,system-ui,sans-serif;padding:12px;padding-top:max(12px,env(safe-area-inset-top))}
+h1{font-size:18px;margin:0}
+.top{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:10px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+select,input,button,.btn{background:#0a1322;color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:7px 9px;font-size:14px}
+input[type=number]{width:68px}
+button,.btn{cursor:pointer}
+.tg{display:flex;align-items:center;gap:5px;color:var(--mu)}
+#wrap{position:relative;height:480px}
+#chart{position:absolute;inset:0}
+#ov{position:absolute;left:0;top:0;pointer-events:none}
+.leg{font-size:12px;color:var(--mu);padding:4px 6px 8px}
+.leg b{font-weight:500}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.k{color:var(--mu);font-size:12px;line-height:1.6}.v{font-size:20px;font-weight:600}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:7px 5px;border-bottom:1px solid var(--bd);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--mu);font-weight:500}
+tr.c{cursor:pointer}tr.sel{background:#13213a}
+.up{color:var(--up)}.dn{color:var(--dn)}.mu{color:var(--mu)}.am{color:var(--am)}
+#edit{display:none;border-color:var(--am)}
+</style></head><body>
+<div class="top"><h1>Scanner IB · ruptura primera hora</h1><span class="mu" id="upd"></span></div>
+<div class="card row">
+  <select id="sym"></select>
+  <button id="prev">◀</button><span id="dlab"></span><button id="next">▶</button>
+  <button id="rel">↻</button>
+</div>
+<div class="card row">
+  <label class="tg"><input type="checkbox" id="fA" checked>Setup A</label>
+  <label class="tg"><input type="checkbox" id="fB" checked>Setup B</label>
+  <label class="tg"><input type="checkbox" id="fL" checked>Largos</label>
+  <label class="tg"><input type="checkbox" id="fS" checked>Cortos</label>
+  <label class="tg"><input type="checkbox" id="fN" checked>Filtro noticias</label>
+  <label class="tg">ATR×<input type="number" id="am" value="2.5" step="0.1"></label>
+  <label class="tg">R:R<input type="number" id="rr" value="2" step="0.5"></label>
+  <label class="tg">IB min<input type="number" id="ib" value="60" step="15"></label>
+</div>
+<div class="card row">
+  <label class="tg"><input type="checkbox" id="fV" checked>VWAP</label>
+  <label class="tg"><input type="checkbox" id="fO" checked>Ajustes manuales</label>
+  <span class="mu" id="nov"></span>
+  <button id="exp">Exportar</button>
+  <label class="btn">Importar<input type="file" id="imp" accept=".json,application/json" style="display:none"></label>
+</div>
+<div class="card" id="today">Cargando…</div>
+<div class="card" style="padding:6px">
+  <div class="leg"><b style="color:#60a5fa">━ IB H / L</b> · <b style="color:#94a3b8">┄ 50%</b> · <b style="color:#a78bfa">━ <span id="vwl">VWAP</span></b> · Toca una posición y arrastra sus tiradores</div>
+  <div id="wrap"><div id="chart"></div><canvas id="ov"></canvas></div>
+</div>
+<div class="card" id="edit"></div>
+<div class="card"><div class="grid" id="stats"></div></div>
+<div class="card tw"><table>
+  <thead><tr><th>Fecha</th><th>Setup</th><th>Entrada</th><th>Stop</th><th>Obj.</th><th>Salida</th><th>R</th></tr></thead>
+  <tbody id="tb"></tbody></table></div>
+<script>
+const $=id=>document.getElementById(id);
+let D,S,G=[],R=[],TR=[],CUR={},day=0,selTr=null,selId=null,drag=null,justDragged=0,boxes=[],sig='';
+let OV={};try{OV=JSON.parse(localStorage.getItem('ibOverrides')||'{}')}catch(e){}
+function saveOv(){try{localStorage.setItem('ibOverrides',JSON.stringify(OV))}catch(e){}
+  $('nov').textContent=Object.keys(OV).length+' ajustes guardados'}
+const hhmm=t=>new Date(t*1000).toISOString().slice(11,16);
+const f=x=>x==null?'–':(+x).toFixed(1);
+const lonNow=()=>{const d=new Date(),s=d.toLocaleString('sv-SE',{timeZone:'Europe/London'});return Date.parse(s.replace(' ','T')+'Z')/1000};
+
+const wrap=$('wrap'),cv=$('ov'),ctx=cv.getContext('2d');
+const chart=LightweightCharts.createChart($('chart'),{autoSize:true,
+  layout:{background:{type:'solid',color:'#060d1a'},textColor:'#cbd5e1'},
+  grid:{vertLines:{color:'#101b30'},horzLines:{color:'#101b30'}},
+  timeScale:{timeVisible:true,secondsVisible:false,borderColor:'#1b2a44',rightOffset:6},
+  rightPriceScale:{borderColor:'#1b2a44'},crosshair:{mode:0}});
+const cs=chart.addCandlestickSeries({upColor:'#26a69a',downColor:'#ef5350',borderVisible:false,wickUpColor:'#26a69a',wickDownColor:'#ef5350'});
+const vw=chart.addLineSeries({color:'#a78bfa',lineWidth:2,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false});
+
+function cfg(){return{A:$('fA').checked,B:$('fB').checked,long:$('fL').checked,short:$('fS').checked,
+  news:$('fN').checked,atr_mult:+$('am').value,rr:+$('rr').value,ib_min:+$('ib').value,useOv:$('fO').checked}}
+
+function atr(b,n){const o=[],tr=[];let s=0;
+  for(let i=0;i<b.length;i++){const pc=i?b[i-1][4]:b[i][4];
+    const t=Math.max(b[i][2]-b[i][3],Math.abs(b[i][2]-pc),Math.abs(b[i][3]-pc));
+    tr.push(t);s+=t;if(i>=n)s-=tr[i-n];o.push(i>=n-1?s/n:null)}return o}
+
+function closeTr(p,px,why,t){p.x=px;p.why=why;p.xt=t;p.r=(p.d==='L'?px-p.e:p.e-px)/p.risk}
+
+function runDay(day,A,c,openM,live,key){
+  const ibe=openM+c.ib_min,ib=day.filter(x=>x[1][5]<ibe).map(x=>x[1]);
+  if(!ib.length)return null;
+  const H=Math.max(...ib.map(b=>b[2])),L=Math.min(...ib.map(b=>b[3])),M=(H+L)/2;
+  const k0=day.findIndex(x=>x[1][5]>=ibe),res={H,L,M,trades:[],pending:null,ibOk:k0>=0};
+  if(k0<0)return res;
+  let pos=null,up=false,dn=false;
+  for(let k=k0;k<day.length;k++){
+    const [gi,b]=day[k],pc=day[k-1][1][4];
+    if(pc>H)up=true;if(pc<L)dn=true;
+    if(pos){if(k>=pos.k){const lg=pos.d==='L';
+        if(lg?b[3]<=pos.sl:b[2]>=pos.sl){closeTr(pos,pos.sl,'stop',b[0]);pos=null}
+        else if(lg?b[2]>=pos.tp:b[3]<=pos.tp){closeTr(pos,pos.tp,'objetivo',b[0]);pos=null}}
+      continue}
+    const a=gi?A[gi-1]:null;
+    if(c.news&&a&&b[2]-b[3]>c.atr_mult*a)continue;
+    const cl=b[4];let st=null,d=null;
+    if(c.A&&cl>H&&pc<=H){st='A';d='L'}
+    else if(c.A&&cl<L&&pc>=L){st='A';d='S'}
+    else if(c.B&&up&&cl<H&&pc>=H&&cl>M){st='B';d='S'}
+    else if(c.B&&dn&&cl>L&&pc<=L&&cl<M){st='B';d='L'}
+    if(!st||(d==='L'?!c.long:!c.short))continue;
+    const nx=k+1<day.length?day[k+1][1]:null;
+    if(!nx&&!live)continue;
+    const e=nx?nx[1]:cl,sl0=d==='L'?b[3]:b[2],risk0=d==='L'?e-sl0:sl0-e;
+    if(risk0<=0)continue;
+    let tp0;
+    if(st==='A')tp0=d==='L'?e+c.rr*risk0:e-c.rr*risk0;
+    else{tp0=M;if(d==='L'?tp0<=e:tp0>=e)continue}
+    const id=`${key}|${b[0]}|${st}${d}`;
+    let sl=sl0,tp=tp0,risk=risk0,ov=false;
+    if(nx&&c.useOv&&OV[id]){const o=OV[id],r2=d==='L'?e-o.sl:o.sl-e,okT=d==='L'?o.tp>e:o.tp<e;
+      if(r2>0&&okT){sl=o.sl;tp=o.tp;risk=r2;ov=true}}
+    const t={id,st,d,sig_t:b[0],e,sl,tp,risk,sl0,tp0,ov,k:k+1,et:nx?nx[0]:null,x:null};
+    if(nx){res.trades.push(t);pos=t}else res.pending=t;
+  }
+  if(pos&&!live){const lb=day[day.length-1][1];closeTr(pos,lb[4],'cierre',lb[0])}
+  return res}
+
+function vwapData(){const out=[];
+  G.forEach(g=>{const tot=g.reduce((a,x)=>a+(x[1][7]||0),0);let pv=0,vv=0,ps=0,n=0;
+    g.forEach((x,i)=>{const b=x[1],tp=(b[2]+b[3]+b[4])/3,v=b[7]||0;pv+=tp*v;vv+=v;ps+=tp;n++;
+      out.push(i===0?{time:b[0]}:{time:b[0],value:tot>0&&vv>0?pv/vv:ps/n})})});
+  return out}
+
+function stats(t){const n=t.length,w=t.filter(x=>x.r>0),l=t.filter(x=>x.r<0);
+  const sum=t.reduce((a,x)=>a+x.r,0),gp=w.reduce((a,x)=>a+x.r,0),gl=-l.reduce((a,x)=>a+x.r,0);
+  let eq=0,pk=0,dd=0;t.forEach(x=>{eq+=x.r;pk=Math.max(pk,eq);dd=Math.max(dd,pk-eq)});
+  return{n,wr:n?w.length/n*100:0,sum,avg:n?sum/n:0,pf:gl?gp/gl:(gp?Infinity:0),dd}}
+
+function box(name,t){const s=stats(t);
+  return `<div><div class="k">${name}</div><div class="v ${s.sum>=0?'up':'dn'}">${s.sum>=0?'+':''}${s.sum.toFixed(1)}R</div>
+  <div class="k">${s.n} ops · ${s.wr.toFixed(0)}% acierto<br>R medio ${s.avg.toFixed(2)} · PF ${isFinite(s.pf)?s.pf.toFixed(2):'∞'}<br>DD máx ${s.dd.toFixed(1)}R</div></div>`}
+
+function load(auto){
+  if(auto&&drag)return;
+  fetch('data.json?'+Date.now()).then(r=>r.json()).then(d=>{
+    D=d;$('upd').textContent='Actualizado '+D.updated;
+    const sel=$('sym'),cur=sel.value;
+    sel.innerHTML=Object.entries(D.symbols).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('');
+    if(cur&&D.symbols[cur])sel.value=cur;
+    pick(!auto);
+  }).catch(()=>{$('today').innerHTML='<span class="dn">No se pudo cargar data.json. Ejecuta el workflow una vez desde Actions.</span>'})}
+
+function pick(reset){
+  const wasLast=!S||day>=S.days.length-1;
+  S=D.symbols[$('sym').value];S.key=$('sym').value;
+  G=S.days.map(()=>[]);S.bars.forEach((b,gi)=>G[b[6]].push([gi,b]));
+  S.A=atr(S.bars,14);
+  cs.setData(S.bars.map(b=>({time:b[0],open:b[1],high:b[2],low:b[3],close:b[4]})));
+  vw.setData(vwapData());
+  $('vwl').textContent=S.bars.some(b=>b[7]>0)?'VWAP':'VWAP (sin volumen: media de precio)';
+  if(reset){selTr=null;selId=null}
+  compute();
+  if(reset||wasLast)goDay(S.days.length-1);else goDay(Math.min(day,S.days.length-1),true)}
+
+function compute(){
+  CUR=cfg();const last=S.days.length-1;
+  R=G.map((g,di)=>{if(!g.length)return null;const lb=g[g.length-1][1];
+    const live=di===last&&lb[5]<S.close-5&&lonNow()-lb[0]<7200;
+    return runDay(g,S.A,CUR,S.open,live,S.key)});
+  TR=[];R.forEach((r,di)=>r&&r.trades.forEach(t=>{t.di=di;TR.push(t)}));
+  selTr=selId?TR.find(t=>t.id===selId)||null:null;if(!selTr)selId=null;
+  const mk=[];
+  R.forEach(r=>{if(!r)return;r.trades.forEach(t=>{
+      mk.push({time:t.et,position:t.d==='L'?'belowBar':'aboveBar',color:t.d==='L'?'#22c55e':'#ef4444',shape:t.d==='L'?'arrowUp':'arrowDown',text:t.st});
+      if(t.xt)mk.push({time:t.xt,position:t.d==='L'?'aboveBar':'belowBar',color:t.r>0?'#22c55e':'#ef4444',shape:'circle',text:(t.r>0?'+':'')+t.r.toFixed(1)+'R'})});
+    if(r.pending)mk.push({time:r.pending.sig_t,position:'aboveBar',color:'#f59e0b',shape:'circle',text:'señal'})});
+  mk.sort((a,b)=>a.time-b.time);cs.setMarkers(mk);
+  vw.applyOptions({visible:$('fV').checked});
+  saveOv();renderToday();renderStats();renderTable();renderEdit();sig=''}
+
+function goDay(di,keepView){day=Math.max(0,Math.min(di,S.days.length-1));$('dlab').textContent=S.days[day];
+  if(keepView)return;const g=G[day];if(!g.length)return;
+  chart.timeScale().setVisibleRange({from:g[0][1][0],to:g[g.length-1][1][0]})}
+
+function renderToday(){
+  const di=S.days.length-1,r=R[di];
+  let h=`<div class="k">Última sesión · ${S.days[di]} · ${S.label}</div>`;
+  if(!r){h+='<div>Sin datos del IB</div>'}
+  else{
+    h+=`<div class="row" style="margin:6px 0"><span>IB H <b>${f(r.H)}</b></span><span>50% <b>${f(r.M)}</b></span><span>IB L <b>${f(r.L)}</b></span>${r.ibOk?'':'<span class="mu">(IB en formación)</span>'}</div>`;
+    const o=r.trades.find(t=>t.x==null);
+    if(o)h+=`<div>${o.d==='L'?'🟢 Largo':'🔴 Corto'} abierto · Setup ${o.st} · E ${f(o.e)} · SL ${f(o.sl)} · TP ${f(o.tp)}</div>`;
+    if(r.pending)h+=`<div class="am">Señal de ${r.pending.d==='L'?'compra':'venta'} · setup ${r.pending.st} · vela ${hhmm(r.pending.sig_t)} · entrada en la siguiente vela</div>`;
+    const done=r.trades.filter(t=>t.x!=null);
+    if(done.length)h+=`<div class="k">Cerradas: ${done.map(t=>`${t.st}${t.d==='L'?'↑':'↓'} ${t.r>0?'+':''}${t.r.toFixed(1)}R`).join(' · ')}</div>`;
+    if(!o&&!r.pending&&!done.length&&r.ibOk)h+='<div class="mu">Sin señales</div>';
+  }
+  $('today').innerHTML=h}
+
+function renderStats(){
+  const cl=TR.filter(t=>t.x!=null),last=S.days.length-1;
+  const g=[['Total',cl],['Setup A',cl.filter(t=>t.st==='A')],['Setup B',cl.filter(t=>t.st==='B')],
+           ['Largos',cl.filter(t=>t.d==='L')],['Cortos',cl.filter(t=>t.d==='S')]];
+  $('stats').innerHTML=g.map(([n,t])=>box(n,t)).join('')+
+    `<div class="k" style="grid-column:1/-1">${S.days.length} sesiones · ${S.days[0]} → ${S.days[last]}${CUR.useOv?' · con ajustes manuales':' · regla fija'}</div>`}
+
+function renderTable(){
+  $('tb').innerHTML=TR.map((t,i)=>[t,i]).reverse().map(([t,i])=>`<tr class="c${t===selTr?' sel':''}" data-i="${i}">
+    <td>${S.days[t.di].slice(5)} ${hhmm(t.et)}</td>
+    <td class="${t.d==='L'?'up':'dn'}">${t.st} ${t.d==='L'?'↑':'↓'}${OV[t.id]?' <span class="am">✎</span>':''}</td>
+    <td>${f(t.e)}</td><td>${f(t.sl)}</td><td class="${t.ov?'am':''}">${f(t.tp)}</td>
+    <td class="mu">${t.why||'abierta'}</td>
+    <td class="${t.r>0?'up':t.r<0?'dn':''}">${t.r==null?'–':(t.r>0?'+':'')+t.r.toFixed(2)}</td></tr>`).join('')}
+
+function select(t){selTr=t;selId=t?t.id:null;renderEdit();renderTable();sig=''}
+
+function renderEdit(){
+  const el=$('edit'),t=selTr;
+  if(!t){el.style.display='none';return}
+  el.style.display='block';const lg=t.d==='L';
+  el.innerHTML=`<div class="k">${S.days[t.di]} ${hhmm(t.et)} · Setup ${t.st} ${lg?'↑ largo':'↓ corto'} · Entrada <b>${f(t.e)}</b>${t.ov?' · <span class="am">ajustada</span>':''}</div>
+  <div class="row" style="margin-top:8px">
+    <label class="tg">Objetivo<input type="number" id="eTP" step="0.1" value="${t.tp.toFixed(1)}" style="width:100px"></label>
+    <label class="tg">Stop<input type="number" id="eSL" step="0.1" value="${t.sl.toFixed(1)}" style="width:100px"></label>
+    <span id="eRR" class="mu"></span></div>
+  <div class="k" style="margin-top:6px">Original: TP ${f(t.tp0)} · SL ${f(t.sl0)} · Resultado: ${t.r==null?'abierta':(t.r>0?'+':'')+t.r.toFixed(2)+'R ('+t.why+')'}</div>
+  <div id="eErr" class="dn" style="font-size:13px"></div>
+  <div class="row" style="margin-top:8px"><button id="eSave">Guardar</button><button id="eReset">Restaurar original</button><button id="eClose">Cerrar</button></div>`;
+  const upd=()=>{const tp=+$('eTP').value,sl=+$('eSL').value,rk=lg?t.e-sl:sl-t.e,rw=lg?tp-t.e:t.e-tp;
+    $('eRR').textContent=rk>0?`R:R ${(rw/rk).toFixed(2)} · riesgo ${rk.toFixed(1)} pts`:'';$('eErr').textContent=''};
+  $('eTP').oninput=upd;$('eSL').oninput=upd;upd();
+  $('eSave').onclick=()=>{const tp=+$('eTP').value,sl=+$('eSL').value;
+    const ok=lg?(sl<t.e&&tp>t.e):(sl>t.e&&tp<t.e);
+    if(!ok){$('eErr').textContent=lg?'En un largo: stop por debajo y objetivo por encima de la entrada.':'En un corto: stop por encima y objetivo por debajo de la entrada.';return}
+    OV[t.id]={tp,sl};$('fO').checked=true;compute()};
+  $('eReset').onclick=()=>{delete OV[t.id];compute()};
+  $('eClose').onclick=()=>select(null)}
+
+function syncInputs(){if(drag&&$('eTP')){$('eTP').value=drag.tp.toFixed(1);$('eSL').value=drag.sl.toFixed(1);$('eTP').oninput()}}
+
+function line(x1,x2,y,c,dash){ctx.strokeStyle=c;ctx.lineWidth=1;ctx.setLineDash(dash);ctx.beginPath();ctx.moveTo(x1,y);ctx.lineTo(x2,y);ctx.stroke();ctx.setLineDash([])}
+function txt(s,x,y,c){ctx.font='11px -apple-system,system-ui,sans-serif';ctx.fillStyle=c;ctx.fillText(s,x+4,y)}
+function tag(s,x,y,c,above){ctx.font='12px -apple-system,system-ui,sans-serif';const w=ctx.measureText(s).width+10,yy=above?y-20:y+3;
+  ctx.fillStyle='rgba(6,13,26,0.85)';ctx.fillRect(x+2,yy,w,17);ctx.strokeStyle=c;ctx.lineWidth=1;ctx.strokeRect(x+2,yy,w,17);
+  ctx.fillStyle=c;ctx.fillText(s,x+7,yy+13)}
+function handle(xa,xb,y,c){const cx=(xa+xb)/2;ctx.lineWidth=2;ctx.strokeStyle=c;ctx.beginPath();ctx.moveTo(xa,y);ctx.lineTo(xb,y);ctx.stroke();
+  ctx.fillStyle='#060d1a';ctx.fillRect(cx-7,y-7,14,14);ctx.strokeRect(cx-7,y-7,14,14)}
+
+function drawPos(t,g,X,Y,bs){
+  const sel=t===selTr,tp=sel&&drag?drag.tp:t.tp,sl=sel&&drag?drag.sl:t.sl;
+  const xe=X(t.et),xx=X(t.xt||g[g.length-1][1][0]);if(xe==null||xx==null)return;
+  const xa=xe-bs,xb=Math.max(xx+bs,xa+3*bs),ye=Y(t.e),yt=Y(tp),ys=Y(sl);
+  if(ye==null||yt==null||ys==null)return;
+  ctx.fillStyle=sel?'rgba(34,197,94,0.30)':'rgba(34,197,94,0.14)';ctx.fillRect(xa,Math.min(ye,yt),xb-xa,Math.abs(yt-ye));
+  ctx.fillStyle=sel?'rgba(239,68,68,0.30)':'rgba(239,68,68,0.14)';ctx.fillRect(xa,Math.min(ye,ys),xb-xa,Math.abs(ys-ye));
+  line(xa,xb,ye,'#e2e8f0',[]);
+  if(t.ov){ctx.strokeStyle='#f59e0b';ctx.lineWidth=1;ctx.setLineDash([3,3]);ctx.strokeRect(xa,Math.min(yt,ys),xb-xa,Math.abs(ys-yt));ctx.setLineDash([])}
+  boxes.push({t,xa,xb,y1:Math.min(yt,ys),y2:Math.max(yt,ys),yt,ys});
+  if(sel){const lg=t.d==='L',risk=lg?t.e-sl:sl-t.e,rw=lg?tp-t.e:t.e-tp;
+    handle(xa,xb,yt,'#22c55e');handle(xa,xb,ys,'#ef4444');
+    tag(`TP ${f(tp)} · ${f(rw)} pts · ${(rw/risk).toFixed(2)}R`,xa,yt,'#22c55e',lg);
+    tag(`SL ${f(sl)} · ${f(risk)} pts`,xa,ys,'#ef4444',!lg);
+    tag(`Entrada ${f(t.e)} · ${t.r==null?'abierta':(t.r>0?'+':'')+t.r.toFixed(2)+'R'}`,xa,ye,'#e2e8f0',!lg)}}
+
+function paint(){
+  const dpr=window.devicePixelRatio||1,w=wrap.clientWidth,h=wrap.clientHeight;
+  if(cv.width!==Math.round(w*dpr)||cv.height!==Math.round(h*dpr)){cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr);cv.style.width=w+'px';cv.style.height=h+'px'}
+  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);boxes=[];if(!S)return;
+  const ts=chart.timeScale(),pw=w-chart.priceScale('right').width(),ph=h-ts.height();
+  ctx.save();ctx.beginPath();ctx.rect(0,0,pw,ph);ctx.clip();
+  const bs=ts.options().barSpacing/2,X=t=>ts.timeToCoordinate(t),Y=p=>cs.priceToCoordinate(p),ibe=S.open+CUR.ib_min;
+  R.forEach((r,di)=>{if(!r)return;const g=G[di];const x0=X(g[0][1][0]),x1=X(g[g.length-1][1][0]);
+    if(x0==null||x1==null||x1<-60||x0>pw+60)return;
+    let ibLast=g[0][1][0];g.forEach(x=>{if(x[1][5]<ibe)ibLast=x[1][0]});
+    const xi=X(ibLast),yH=Y(r.H),yL=Y(r.L),yM=Y(r.M);
+    ctx.fillStyle='rgba(59,130,246,0.10)';ctx.fillRect(x0-bs,yH,xi-x0+2*bs,yL-yH);
+    line(x0-bs,x1+bs,yH,'#3b82f6',[]);line(x0-bs,x1+bs,yL,'#3b82f6',[]);line(x0-bs,x1+bs,yM,'#94a3b8',[5,4]);
+    if(x1-x0>160){txt('IB H '+f(r.H),x0,yH-5,'#60a5fa');txt('50% '+f(r.M),x0,yM-5,'#94a3b8');txt('IB L '+f(r.L),x0,yL+13,'#60a5fa')}
+    r.trades.forEach(t=>drawPos(t,g,X,Y,bs))});
+  ctx.restore()}
+
+function loop(){
+  const lr=chart.timeScale().getVisibleLogicalRange();
+  const s=[wrap.clientWidth,wrap.clientHeight,lr&&lr.from,lr&&lr.to,S&&cs.priceToCoordinate(S.bars[S.bars.length-1][4]),
+    S&&cs.priceToCoordinate(S.bars[0][4]),drag&&drag.tp,drag&&drag.sl,selId].join('|');
+  if(s!==sig){sig=s;paint()}
+  requestAnimationFrame(loop)}
+
+function hitHandle(x,y){if(!selTr)return null;const b=boxes.find(b=>b.t===selTr);if(!b)return null;
+  if(x<b.xa-24||x>b.xb+24)return null;if(Math.abs(y-b.yt)<16)return 'tp';if(Math.abs(y-b.ys)<16)return 'sl';return null}
+function relXY(e){const r=wrap.getBoundingClientRect();return[e.clientX-r.left,e.clientY-r.top]}
+
+wrap.addEventListener('pointerdown',e=>{const [x,y]=relXY(e),k=hitHandle(x,y);if(!k)return;
+  e.stopPropagation();e.preventDefault();drag={k,tp:selTr.tp,sl:selTr.sl};
+  chart.applyOptions({handleScroll:false,handleScale:false})},true);
+['touchstart','touchmove','mousedown','mousemove'].forEach(ev=>wrap.addEventListener(ev,e=>{if(drag){e.stopPropagation();if(e.cancelable)e.preventDefault()}},{capture:true,passive:false}));
+window.addEventListener('pointermove',e=>{if(!drag||!selTr)return;const [,y]=relXY(e);let p=cs.coordinateToPrice(y);if(p==null)return;
+  p=Math.round(p*10)/10;const t=selTr,lg=t.d==='L',m=0.1;
+  if(drag.k==='tp')drag.tp=lg?Math.max(p,t.e+m):Math.min(p,t.e-m);
+  else drag.sl=lg?Math.min(p,t.e-m):Math.max(p,t.e+m);
+  syncInputs()});
+function endDrag(){if(!drag)return;const t=selTr;if(t)OV[t.id]={tp:drag.tp,sl:drag.sl};drag=null;
+  chart.applyOptions({handleScroll:true,handleScale:true});justDragged=Date.now();$('fO').checked=true;compute()}
+window.addEventListener('pointerup',endDrag);window.addEventListener('pointercancel',endDrag);
+
+chart.subscribeClick(p=>{if(Date.now()-justDragged<400||!p.point)return;const {x,y}=p.point;
+  const b=boxes.slice().reverse().find(b=>x>=b.xa&&x<=b.xb&&y>=b.y1-6&&y<=b.y2+6);select(b?b.t:null)});
+
+$('sym').onchange=()=>pick(true);
+['fA','fB','fL','fS','fN','am','rr','ib','fO'].forEach(id=>$(id).onchange=compute);
+$('fV').onchange=()=>vw.applyOptions({visible:$('fV').checked});
+$('prev').onclick=()=>goDay(day-1);
+$('next').onclick=()=>goDay(day+1);
+$('rel').onclick=()=>load(true);
+$('tb').onclick=e=>{const tr=e.target.closest('tr');if(!tr)return;const t=TR[+tr.dataset.i];
+  select(t);goDay(t.di);$('wrap').scrollIntoView({behavior:'smooth',block:'center'})};
+$('exp').onclick=()=>{const b=new Blob([JSON.stringify(OV,null,1)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='ib_ajustes.json';a.click()};
+$('imp').onchange=e=>{const fl=e.target.files[0];if(!fl)return;
+  fl.text().then(s=>{try{Object.assign(OV,JSON.parse(s));compute()}catch(err){alert('Archivo no válido')}});e.target.value=''};
+saveOv();load(false);setInterval(()=>load(true),120000);requestAnimationFrame(loop);
+</script></body></html>
