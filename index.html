@@ -3,6 +3,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Scanner IB</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#060d1a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Scanner IB">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
 :root{--bg:#060d1a;--card:#0b1527;--bd:#1b2a44;--tx:#dbe4f0;--mu:#7f8ea8;--up:#22c55e;--dn:#ef4444;--am:#f59e0b}
@@ -66,6 +71,8 @@ tr.c{cursor:pointer}tr.sel{background:#13213a}
   <thead><tr><th>Fecha</th><th>Setup</th><th>Entrada</th><th>Stop</th><th>Obj.</th><th>Salida</th><th>R</th></tr></thead>
   <tbody id="tb"></tbody></table></div>
 <script>
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+if(!window.LightweightCharts){document.getElementById('today').innerHTML='<span style="color:#ef4444">No se pudo cargar el gráfico. Abre la app una vez con conexión para que se guarde en el iPad.</span>';throw new Error('sin librería')}
 const $=id=>document.getElementById(id);
 let D,S,G=[],R=[],TR=[],CUR={},day=0,selTr=null,selId=null,drag=null,justDragged=0,boxes=[],sig='';
 let OV={};try{OV=JSON.parse(localStorage.getItem('ibOverrides')||'{}')}catch(e){}
@@ -151,12 +158,12 @@ function box(name,t){const s=stats(t);
 function load(auto){
   if(auto&&drag)return;
   fetch('data.json?'+Date.now()).then(r=>r.json()).then(d=>{
-    D=d;$('upd').textContent='Actualizado '+D.updated;
+    D=d;$('upd').innerHTML=(navigator.onLine?'Actualizado ':'<span class="am">Sin conexión</span> · datos de ')+D.updated;
     const sel=$('sym'),cur=sel.value;
     sel.innerHTML=Object.entries(D.symbols).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('');
     if(cur&&D.symbols[cur])sel.value=cur;
     pick(!auto);
-  }).catch(()=>{$('today').innerHTML='<span class="dn">No se pudo cargar data.json. Ejecuta el workflow una vez desde Actions.</span>'})}
+  }).catch(()=>{$('today').innerHTML=navigator.onLine?'<span class="dn">No se pudo cargar data.json. Ejecuta el workflow una vez desde Actions.</span>':'<span class="am">Sin conexión y sin datos guardados. Abre la app una vez con conexión antes del vuelo.</span>'})}
 
 function pick(reset){
   const wasLast=!S||day>=S.days.length-1;
@@ -331,5 +338,6 @@ $('exp').onclick=()=>{const b=new Blob([JSON.stringify(OV,null,1)],{type:'applic
   const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='ib_ajustes.json';a.click()};
 $('imp').onchange=e=>{const fl=e.target.files[0];if(!fl)return;
   fl.text().then(s=>{try{Object.assign(OV,JSON.parse(s));compute()}catch(err){alert('Archivo no válido')}});e.target.value=''};
-saveOv();load(false);setInterval(()=>load(true),120000);requestAnimationFrame(loop);
+saveOv();load(false);setInterval(()=>{if(navigator.onLine)load(true)},120000);
+window.addEventListener('online',()=>load(true));requestAnimationFrame(loop);
 </script></body></html>
