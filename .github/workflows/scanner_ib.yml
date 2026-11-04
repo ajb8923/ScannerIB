@@ -1,7 +1,7 @@
 name: Scanner IB
 on:
   schedule:
-    - cron: '*/5 7-21 * * 1-5'
+    - cron: '*/15 7-21 * * 1-5'   # respaldo; el disparo principal es cron-job.org
   workflow_dispatch:
 permissions:
   contents: write
