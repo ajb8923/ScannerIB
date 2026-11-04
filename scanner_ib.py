@@ -11,8 +11,9 @@ SYMBOLS = {
 }
 # Configuración de las alertas de Telegram (la web tiene sus propios interruptores)
 CFG = {"ib_min": 60, "rr": 2.0, "atr_len": 14, "atr_mult": 2.5, "news": True,
-       "A": True, "B": True, "long": True, "short": True}
+       "A": True, "B": True, "C": True, "long": True, "short": True}
 TOKEN, CHAT = os.getenv("TELEGRAM_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
+MAX_AGE = 15  # minutos: las señales más antiguas no se envían (llegarían tarde para entrar)
 
 def hm(s):
     h, m = map(int, s.split(":")); return h * 60 + m
@@ -72,6 +73,8 @@ def run_day(day, A, c, open_m, live):
         elif c["A"] and cl < L and pc >= L: sig = ("A", "S")
         elif c["B"] and up and cl < H and pc >= H and cl > M: sig = ("B", "S")
         elif c["B"] and dn and cl > L and pc <= L and cl < M: sig = ("B", "L")
+        elif c["C"] and b[2] >= H and cl < H and cl < b[1]: sig = ("C", "S")  # toca IB H y cierra roja dentro
+        elif c["C"] and b[3] <= L and cl > L and cl > b[1]: sig = ("C", "L")  # toca IB L y cierra verde dentro
         if not sig or not c["long" if sig[1] == "L" else "short"]: continue
         st, d = sig
         nxt = day[k + 1][1] if k + 1 < len(day) else None
@@ -92,19 +95,20 @@ def run_day(day, A, c, open_m, live):
     if pos and not live: close_tr(pos, day[-1][1][4], "cierre", day[-1][1][0])
     return res
 
+SETUPS = {"A": "A · ruptura", "B": "B · fallo al 50%", "C": "C · rechazo al 50%"}
+
 def hhmm(t): return dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime("%H:%M")
 
 def msg(s, r, t, pending):
     lg = t["d"] == "L"
     return (f"📊 SCANNER IB\n"
             f"{'🟢 COMPRA' if lg else '🔴 VENTA'} · {s['label']}\n"
-            f"Setup {'A · ruptura' if t['st'] == 'A' else 'B · fallo al 50%'}\n"
+            f"Setup {SETUPS[t['st']]}\n"
             f"Vela señal: {hhmm(t['sig_t'])} (Londres)\n"
             f"IB: H {r['H']} · 50% {r['M']} · L {r['L']}\n"
             f"Entrada: {'≈' if pending else ''}{t['e']} (apertura siguiente vela)\n"
             f"Stop: {t['sl']} · Objetivo: {t['tp']}\n"
             f"Riesgo: {t['risk']} pts")
-
 
 def send(text):
     if not (TOKEN and CHAT): print(text); return True
@@ -138,9 +142,13 @@ def main():
         r = run_day(day, A, CFG, hm(s["open"]), live)
         if not r: continue
         items = [(t, False) for t in r["trades"]] + ([(r["pending"], True)] if r["pending"] else [])
+        now_l = int((pd.Timestamp.now(tz="Europe/London").tz_localize(None) - pd.Timestamp("1970-01-01")) // pd.Timedelta(seconds=1))
         for t, p in items:
             sid = f"{name}|{t['sig_t']}|{t['st']}{t['d']}"
-            if sid not in state["sent"] and send(msg(s, r, t, p)):
+            if sid in state["sent"]: continue
+            if now_l - (t["sig_t"] + 300) > MAX_AGE * 60:  # la vela de señal cerró hace demasiado
+                print("Señal antigua, no se envía:", sid); state["sent"].append(sid); continue
+            if send(msg(s, r, t, p)):
                 state["sent"].append(sid)
     state["sent"] = state["sent"][-300:]
     json.dump(out, open("data.json", "w"), separators=(",", ":"))
