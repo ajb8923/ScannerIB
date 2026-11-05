@@ -47,6 +47,7 @@ tr.c{cursor:pointer}tr.sel{background:#13213a}
   <label class="tg"><input type="checkbox" id="fA" checked>Setup A</label>
   <label class="tg"><input type="checkbox" id="fB" checked>Setup B</label>
   <label class="tg"><input type="checkbox" id="fC" checked>Setup C</label>
+  <label class="tg"><input type="checkbox" id="fD" checked>Setup D</label>
   <label class="tg"><input type="checkbox" id="fL" checked>Largos</label>
   <label class="tg"><input type="checkbox" id="fS" checked>Cortos</label>
   <label class="tg"><input type="checkbox" id="fN" checked>Filtro noticias</label>
@@ -93,7 +94,7 @@ const chart=LightweightCharts.createChart($('chart'),{autoSize:true,
 const cs=chart.addCandlestickSeries({upColor:'#26a69a',downColor:'#ef5350',borderVisible:false,wickUpColor:'#26a69a',wickDownColor:'#ef5350'});
 const vw=chart.addLineSeries({color:'#a78bfa',lineWidth:2,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false});
 
-function cfg(){return{A:$('fA').checked,B:$('fB').checked,C:$('fC').checked,long:$('fL').checked,short:$('fS').checked,
+function cfg(){return{A:$('fA').checked,B:$('fB').checked,C:$('fC').checked,D:$('fD').checked,long:$('fL').checked,short:$('fS').checked,
   news:$('fN').checked,atr_mult:+$('am').value,rr:+$('rr').value,ib_min:+$('ib').value,gap:+$('gap').value,useOv:$('fO').checked}}
 
 function atr(b,n){const o=[],tr=[];let s=0;
@@ -126,6 +127,9 @@ function runDay(day,A,c,openM,live,key){
     else if(c.B&&dn&&cl>L&&pc<=L&&cl<M){st='B';d='L'}
     else if(c.C&&b[2]>=H&&cl<H&&cl<b[1]){st='C';d='S'}
     else if(c.C&&b[3]<=L&&cl>L&&cl>b[1]){st='C';d='L'}
+    else if(c.D){const pv=day.slice(Math.max(0,k-6),k).map(x=>x[1][4]);
+      if(b[3]<=M&&cl>M&&cl>b[1]&&pv.some(p=>p>M)){st='D';d='L'}
+      else if(b[2]>=M&&cl<M&&cl<b[1]&&pv.some(p=>p<M)){st='D';d='S'}}
     if(!st||(d==='L'?!c.long:!c.short))continue;
     const nx=k+1<day.length?day[k+1][1]:null;
     if(!nx&&!live)continue;
@@ -135,7 +139,7 @@ function runDay(day,A,c,openM,live,key){
     if(risk0<=0)continue;
     let tp0;
     if(st==='A')tp0=d==='L'?e+c.rr*risk0:e-c.rr*risk0;
-    else{tp0=M;if(d==='L'?tp0<=e:tp0>=e)continue}
+    else{tp0=(st==='D')?(d==='L'?H:L):M;if(d==='L'?tp0<=e:tp0>=e)continue}
     const id=`${key}|${b[0]}|${st}${d}`;
     let sl=sl0,tp=tp0,risk=risk0,ov=false;
     if(nx&&c.useOv&&OV[id]){const o=OV[id],r2=d==='L'?e-o.sl:o.sl-e,okT=d==='L'?o.tp>e:o.tp<e;
@@ -221,7 +225,7 @@ function renderToday(){
 
 function renderStats(){
   const cl=TR.filter(t=>t.x!=null),last=S.days.length-1;
-  const g=[['Total',cl],['Setup A',cl.filter(t=>t.st==='A')],['Setup B',cl.filter(t=>t.st==='B')],['Setup C',cl.filter(t=>t.st==='C')],
+  const g=[['Total',cl],['Setup A',cl.filter(t=>t.st==='A')],['Setup B',cl.filter(t=>t.st==='B')],['Setup C',cl.filter(t=>t.st==='C')],['Setup D',cl.filter(t=>t.st==='D')],
            ['Largos',cl.filter(t=>t.d==='L')],['Cortos',cl.filter(t=>t.d==='S')]];
   $('stats').innerHTML=g.map(([n,t])=>box(n,t)).join('')+
     `<div class="k" style="grid-column:1/-1">${S.days.length} sesiones · ${S.days[0]} → ${S.days[last]}${CUR.useOv?' · con ajustes manuales':' · regla fija'}</div>`}
@@ -331,7 +335,7 @@ chart.subscribeClick(p=>{if(Date.now()-justDragged<400||!p.point)return;const {x
   const b=boxes.slice().reverse().find(b=>x>=b.xa&&x<=b.xb&&y>=b.y1-6&&y<=b.y2+6);select(b?b.t:null)});
 
 $('sym').onchange=()=>pick(true);
-['fA','fB','fC','fL','fS','fN','am','rr','ib','gap','fO'].forEach(id=>$(id).onchange=compute);
+['fA','fB','fC','fD','fL','fS','fN','am','rr','ib','gap','fO'].forEach(id=>$(id).onchange=compute);
 $('fV').onchange=()=>vw.applyOptions({visible:$('fV').checked});
 $('prev').onclick=()=>goDay(day-1);
 $('next').onclick=()=>goDay(day+1);
