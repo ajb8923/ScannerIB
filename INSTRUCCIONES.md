@@ -11,7 +11,7 @@ App de la estrategia de ruptura de la primera hora (IB) para DAX, Nasdaq 100, Do
 | `scanner_ib.yml` | `.github/workflows/scanner_ib.yml` | Programa la ejecución cada 5 minutos |
 | `sw.js` | raíz | Guarda la web y los últimos datos en el iPad para usarla sin conexión |
 | `manifest.json` | raíz | Permite instalarla como app en la pantalla de inicio |
-| `esquema_setup_a.svg`, `esquema_setup_b.svg`, `esquema_setup_c.svg` | raíz | Dibujos de las reglas que aparecen en este documento |
+| `esquema_setup_a.svg` … `esquema_setup_d.svg` | raíz | Dibujos de las reglas que aparecen en este documento |
 | `INSTRUCCIONES.md` | raíz (opcional) | Este documento |
 
 `data.json` y `state.json` los crea el propio workflow la primera vez. No los subas.
@@ -95,7 +95,7 @@ Importante: en iPad, la app de la pantalla de inicio y Safari guardan los ajuste
 ## Uso diario
 
 - Durante la sesión, el workflow corre cada 5 minutos de lunes a viernes (07:00 a 21:59 UTC) y la web se recarga sola cada 2 minutos.
-- Las alertas de Telegram usan las reglas fijas de `CFG` en `scanner_ib.py`: R:R 2, filtro de noticias 2,5 × ATR, setups A, B y C, largos y cortos. Para cambiarlas, edita esa línea en GitHub.
+- Las alertas de Telegram usan las reglas fijas de `CFG` en `scanner_ib.py`: R:R 2, margen de apertura del setup A de 5 puntos, filtro de noticias 2,5 × ATR, setups A, B, C y D, largos y cortos. Para cambiarlas, edita esa línea en GitHub.
 - Los interruptores de la web solo afectan al backtest y al gráfico, no a Telegram.
 
 ### Editar posiciones en el gráfico
@@ -121,6 +121,7 @@ En los esquemas, la vela con borde ámbar discontinuo es la vela de señal. La e
 - **Corto:** una vela cierra por debajo del mínimo del IB. Entrada en la apertura de la siguiente, stop en el máximo de la vela de ruptura y objetivo a 2R hacia abajo.
 - La ruptura cuenta por cierre, no por mecha, y tiene que ser un cruce nuevo: la vela anterior debe haber cerrado dentro del rango.
 - El stop va justo en el mínimo o máximo de la vela, sin margen extra. El 2R se mide desde la entrada real.
+- **Margen de apertura:** la vela siguiente a la ruptura tiene que abrir al menos 5 puntos por encima del IB H (largos) o por debajo del IB L (cortos). Si abre más cerca, no se opera. Se cambia con `gap` en `CFG` y con la casilla «Margen A (pts)» de la web.
 
 ### Setup B · fallo de ruptura al 50%
 
@@ -139,10 +140,20 @@ En los esquemas, la vela con borde ámbar discontinuo es la vela de señal. La e
 - Se diferencia del setup B en que el precio no llega a cerrar fuera del IB: toca el extremo y lo rechaza. Si ya había cerrado fuera antes, la señal cuenta como setup B.
 - Como en el B, el ratio depende de la distancia al 50%, y no se abre la operación si al entrar el precio ya ha pasado el 50%.
 
+### Setup D · rebote en el 50% hacia el extremo
+
+![Setup D: rebote en el 50% en largo y en corto](esquema_setup_d.svg)
+
+- **Largo:** con el IB ya cerrado, el precio viene de la mitad alta (alguna de las 6 velas anteriores cerró por encima del 50%). Una vela llega al 50% (su mínimo lo toca o lo perfora) y cierra verde por encima. Entrada en la apertura de la siguiente, stop en el mínimo de la vela de señal y objetivo en el IB H.
+- **Corto:** el precio viene de la mitad baja (alguna de las 6 velas anteriores cerró por debajo del 50%). Una vela llega al 50% y cierra roja por debajo. Entrada en la apertura de la siguiente, stop en el máximo de la vela de señal y objetivo en el IB L.
+- Es el reflejo del setup C: allí el rechazo es en el extremo y se va al 50%; aquí el rebote es en el 50% y se va al extremo contrario.
+- Una vela que viene de la otra mitad y simplemente cruza el 50% no cuenta: eso es continuación, no rebote. El número de velas hacia atrás se cambia con `d_look` en `CFG`.
+
 ### Reglas comunes
 
 - **Filtro de noticias:** no cuenta como señal una vela con un rango mayor que 2,5 veces el ATR(14).
 - Solo una operación abierta a la vez. Puede haber varias señales en el mismo día.
+- Si una vela cumple varios setups a la vez, cuenta el primero en este orden: A, B, C, D.
 - Si una misma vela toca el stop y el objetivo, cuenta como stop.
 - Si al final de la sesión no ha tocado ninguno de los dos, se cierra a mercado.
 - En la web, el R:R del setup A, el filtro y la duración del IB se pueden cambiar para el backtest. Las alertas de Telegram usan siempre los valores de `CFG` en `scanner_ib.py`.
