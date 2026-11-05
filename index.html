@@ -53,6 +53,7 @@ tr.c{cursor:pointer}tr.sel{background:#13213a}
   <label class="tg">ATR×<input type="number" id="am" value="2.5" step="0.1"></label>
   <label class="tg">R:R<input type="number" id="rr" value="2" step="0.5"></label>
   <label class="tg">IB min<input type="number" id="ib" value="60" step="15"></label>
+  <label class="tg">Margen A (pts)<input type="number" id="gap" value="5" step="1"></label>
 </div>
 <div class="card row">
   <label class="tg"><input type="checkbox" id="fV" checked>VWAP</label>
@@ -93,7 +94,7 @@ const cs=chart.addCandlestickSeries({upColor:'#26a69a',downColor:'#ef5350',borde
 const vw=chart.addLineSeries({color:'#a78bfa',lineWidth:2,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false});
 
 function cfg(){return{A:$('fA').checked,B:$('fB').checked,C:$('fC').checked,long:$('fL').checked,short:$('fS').checked,
-  news:$('fN').checked,atr_mult:+$('am').value,rr:+$('rr').value,ib_min:+$('ib').value,useOv:$('fO').checked}}
+  news:$('fN').checked,atr_mult:+$('am').value,rr:+$('rr').value,ib_min:+$('ib').value,gap:+$('gap').value,useOv:$('fO').checked}}
 
 function atr(b,n){const o=[],tr=[];let s=0;
   for(let i=0;i<b.length;i++){const pc=i?b[i-1][4]:b[i][4];
@@ -128,7 +129,9 @@ function runDay(day,A,c,openM,live,key){
     if(!st||(d==='L'?!c.long:!c.short))continue;
     const nx=k+1<day.length?day[k+1][1]:null;
     if(!nx&&!live)continue;
-    const e=nx?nx[1]:cl,sl0=d==='L'?b[3]:b[2],risk0=d==='L'?e-sl0:sl0-e;
+    const e=nx?nx[1]:cl;
+    if(st==='A'&&nx&&(d==='L'?e<H+c.gap:e>L-c.gap))continue;
+    const sl0=d==='L'?b[3]:b[2],risk0=d==='L'?e-sl0:sl0-e;
     if(risk0<=0)continue;
     let tp0;
     if(st==='A')tp0=d==='L'?e+c.rr*risk0:e-c.rr*risk0;
@@ -328,7 +331,7 @@ chart.subscribeClick(p=>{if(Date.now()-justDragged<400||!p.point)return;const {x
   const b=boxes.slice().reverse().find(b=>x>=b.xa&&x<=b.xb&&y>=b.y1-6&&y<=b.y2+6);select(b?b.t:null)});
 
 $('sym').onchange=()=>pick(true);
-['fA','fB','fC','fL','fS','fN','am','rr','ib','fO'].forEach(id=>$(id).onchange=compute);
+['fA','fB','fC','fL','fS','fN','am','rr','ib','gap','fO'].forEach(id=>$(id).onchange=compute);
 $('fV').onchange=()=>vw.applyOptions({visible:$('fV').checked});
 $('prev').onclick=()=>goDay(day-1);
 $('next').onclick=()=>goDay(day+1);
