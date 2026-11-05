@@ -71,7 +71,7 @@ tr.c{cursor:pointer}tr.sel{background:#13213a}
 <div class="card" id="edit"></div>
 <div class="card"><div class="grid" id="stats"></div></div>
 <div class="card tw"><table>
-  <thead><tr><th>Fecha</th><th>Setup</th><th>Entrada</th><th>Stop</th><th>Obj.</th><th>Salida</th><th>R</th></tr></thead>
+  <thead><tr><th>Fecha</th><th>Setup</th><th>Entrada</th><th>Stop</th><th>Obj.</th><th>Pts</th><th>Salida</th><th>R</th></tr></thead>
   <tbody id="tb"></tbody></table></div>
 <script>
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
@@ -168,7 +168,7 @@ function box(name,t){const s=stats(t);
 function load(auto){
   if(auto&&drag)return;
   fetch('data.json?'+Date.now()).then(r=>r.json()).then(d=>{
-    D=d;$('upd').innerHTML=(navigator.onLine?'Actualizado ':'<span class="am">Sin conexión</span> · datos de ')+D.updated;
+    D=d;$('upd').innerHTML=(navigator.onLine?'Actualizado ':'<span class="am">Sin conexión</span> · datos de ')+D.updated;if(D.src)$('upd').innerHTML+=' · '+D.src;
     const sel=$('sym'),cur=sel.value;
     sel.innerHTML=Object.entries(D.symbols).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join('');
     if(cur&&D.symbols[cur])sel.value=cur;
@@ -235,6 +235,7 @@ function renderTable(){
     <td>${S.days[t.di].slice(5)} ${hhmm(t.et)}</td>
     <td class="${t.d==='L'?'up':'dn'}">${t.st} ${t.d==='L'?'↑':'↓'}${OV[t.id]?' <span class="am">✎</span>':''}</td>
     <td>${f(t.e)}</td><td>${f(t.sl)}</td><td class="${t.ov?'am':''}">${f(t.tp)}</td>
+    ${(()=>{const p=t.x==null?null:(t.d==='L'?t.x-t.e:t.e-t.x);return `<td class="${p>0?'up':p<0?'dn':''}">${p==null?'–':(p>0?'+':'')+p.toFixed(1)}</td>`})()}
     <td class="mu">${t.why||'abierta'}</td>
     <td class="${t.r>0?'up':t.r<0?'dn':''}">${t.r==null?'–':(t.r>0?'+':'')+t.r.toFixed(2)}</td></tr>`).join('')}
 
