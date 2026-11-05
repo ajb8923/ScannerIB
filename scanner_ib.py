@@ -11,7 +11,8 @@ SYMBOLS = {
 }
 # Configuración de las alertas de Telegram (la web tiene sus propios interruptores)
 CFG = {"ib_min": 60, "rr": 2.0, "atr_len": 14, "atr_mult": 2.5, "news": True,
-       "A": True, "B": True, "C": True, "long": True, "short": True}
+       "A": True, "B": True, "C": True, "long": True, "short": True,
+       "gap": 5}  # setup A: la vela siguiente debe abrir al menos estos puntos fuera del IB
 TOKEN, CHAT = os.getenv("TELEGRAM_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
 MAX_AGE = 15  # minutos: las señales más antiguas no se envían (llegarían tarde para entrar)
 
@@ -80,6 +81,8 @@ def run_day(day, A, c, open_m, live):
         nxt = day[k + 1][1] if k + 1 < len(day) else None
         if not nxt and not live: continue
         e = nxt[1] if nxt else cl
+        if st == "A" and nxt and ((d == "L" and e < H + c["gap"]) or (d == "S" and e > L - c["gap"])):
+            continue  # ruptura demasiado justa: la apertura no se separa lo suficiente del IB
         sl = b[3] if d == "L" else b[2]
         risk = (e - sl) if d == "L" else (sl - e)
         if risk <= 0: continue
@@ -108,7 +111,9 @@ def msg(s, r, t, pending):
             f"IB: H {r['H']} · 50% {r['M']} · L {r['L']}\n"
             f"Entrada: {'≈' if pending else ''}{t['e']} (apertura siguiente vela)\n"
             f"Stop: {t['sl']} · Objetivo: {t['tp']}\n"
-            f"Riesgo: {t['risk']} pts")
+            f"Riesgo: {t['risk']} pts"
+            + (f"\n⚠️ Solo si la siguiente vela abre {'por encima de ' + str(round(r['H'] + CFG['gap'], 1)) if lg else 'por debajo de ' + str(round(r['L'] - CFG['gap'], 1))}"
+               if pending and t["st"] == "A" else ""))
 
 def send(text):
     if not (TOKEN and CHAT): print(text); return True
