@@ -11,7 +11,8 @@ SYMBOLS = {
 }
 # Configuración de las alertas de Telegram (la web tiene sus propios interruptores)
 CFG = {"ib_min": 60, "rr": 2.0, "atr_len": 14, "atr_mult": 2.5, "news": True,
-       "A": True, "B": True, "C": True, "long": True, "short": True,
+       "A": True, "B": True, "C": True, "D": True, "long": True, "short": True,
+       "d_look": 6,  # setup D: velas hacia atrás en las que el precio debe haber cerrado al otro lado del 50%
        "gap": 5}  # setup A: la vela siguiente debe abrir al menos estos puntos fuera del IB
 TOKEN, CHAT = os.getenv("TELEGRAM_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
 MAX_AGE = 15  # minutos: las señales más antiguas no se envían (llegarían tarde para entrar)
@@ -76,6 +77,10 @@ def run_day(day, A, c, open_m, live):
         elif c["B"] and dn and cl > L and pc <= L and cl < M: sig = ("B", "L")
         elif c["C"] and b[2] >= H and cl < H and cl < b[1]: sig = ("C", "S")  # toca IB H y cierra roja dentro
         elif c["C"] and b[3] <= L and cl > L and cl > b[1]: sig = ("C", "L")  # toca IB L y cierra verde dentro
+        elif c["D"]:
+            prev = [x[1][4] for x in day[max(0, k - c["d_look"]):k]]
+            if b[3] <= M < cl and cl > b[1] and any(p_ > M for p_ in prev): sig = ("D", "L")  # baja al 50% y cierra verde encima
+            elif b[2] >= M > cl and cl < b[1] and any(p_ < M for p_ in prev): sig = ("D", "S")  # sube al 50% y cierra roja debajo
         if not sig or not c["long" if sig[1] == "L" else "short"]: continue
         st, d = sig
         nxt = day[k + 1][1] if k + 1 < len(day) else None
@@ -89,7 +94,7 @@ def run_day(day, A, c, open_m, live):
         if st == "A":
             tp = e + c["rr"] * risk if d == "L" else e - c["rr"] * risk
         else:
-            tp = M
+            tp = M if st in ("B", "C") else (H if d == "L" else L)  # B y C al 50%, D al extremo contrario
             if (d == "L" and tp <= e) or (d == "S" and tp >= e): continue
         tr = {"st": st, "d": d, "sig_t": b[0], "e": round(e, 2), "sl": sl, "tp": round(tp, 2),
               "risk": round(risk, 2), "k": k + 1, "et": nxt[0] if nxt else None, "x": None}
@@ -98,7 +103,7 @@ def run_day(day, A, c, open_m, live):
     if pos and not live: close_tr(pos, day[-1][1][4], "cierre", day[-1][1][0])
     return res
 
-SETUPS = {"A": "A · ruptura", "B": "B · fallo al 50%", "C": "C · rechazo al 50%"}
+SETUPS = {"A": "A · ruptura", "B": "B · fallo al 50%", "C": "C · rechazo al 50%", "D": "D · rebote en el 50%"}
 
 def hhmm(t): return dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime("%H:%M")
 
