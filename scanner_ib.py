@@ -1,13 +1,13 @@
 # Scanner IB — ruptura de la primera hora · GitHub Actions + Telegram
-import os, json, datetime as dt
+import os, json, time, datetime as dt
 from zoneinfo import ZoneInfo
-import pandas as pd, requests, yfinance as yf
+import pandas as pd, requests
 
 SYMBOLS = {
-    "DAX": {"label": "DAX 40",     "yf": "^GDAXI", "tz": "Europe/Berlin",    "open": "09:00", "close": "17:30"},
-    "NDX": {"label": "Nasdaq 100", "yf": "^NDX",   "tz": "America/New_York", "open": "09:30", "close": "16:00"},
-    "DJI": {"label": "Dow Jones",  "yf": "^DJI",   "tz": "America/New_York", "open": "09:30", "close": "16:00"},
-    "SPX": {"label": "S&P 500",    "yf": "^GSPC",  "tz": "America/New_York", "open": "09:30", "close": "16:00"},
+    "DAX": {"label": "DAX 40",     "oa": "DE30_EUR",   "yf": "^GDAXI", "tz": "Europe/Berlin",    "open": "09:00", "close": "17:30"},
+    "NDX": {"label": "Nasdaq 100", "oa": "NAS100_USD", "yf": "^NDX",   "tz": "America/New_York", "open": "09:30", "close": "16:00"},
+    "DJI": {"label": "Dow Jones",  "oa": "US30_USD",   "yf": "^DJI",   "tz": "America/New_York", "open": "09:30", "close": "16:00"},
+    "SPX": {"label": "S&P 500",    "oa": "SPX500_USD", "yf": "^GSPC",  "tz": "America/New_York", "open": "09:30", "close": "16:00"},
 }
 # Configuración de las alertas de Telegram (la web tiene sus propios interruptores)
 CFG = {"ib_min": 60, "rr": 2.0, "atr_len": 14, "atr_mult": 2.5, "news": True,
@@ -15,14 +15,38 @@ CFG = {"ib_min": 60, "rr": 2.0, "atr_len": 14, "atr_mult": 2.5, "news": True,
        "d_look": 6,  # setup D: velas hacia atrás en las que el precio debe haber cerrado al otro lado del 50%
        "gap": 5}  # setup A: la vela siguiente debe abrir al menos estos puntos fuera del IB
 TOKEN, CHAT = os.getenv("TELEGRAM_TOKEN"), os.getenv("TELEGRAM_CHAT_ID")
+OANDA = os.getenv("OANDA_TOKEN")  # con token: datos CFD de OANDA en tiempo real; sin token: Yahoo como respaldo
+OANDA_URL = "https://api-fxpractice.oanda.com/v3/instruments/{}/candles"
+DAYS = 60  # días de historial para el backtest
 MAX_AGE = 15  # minutos: las señales más antiguas no se envían (llegarían tarde para entrar)
 
 def hm(s):
     h, m = map(int, s.split(":")); return h * 60 + m
 
+def oanda_df(inst):
+    h = {"Authorization": f"Bearer {OANDA}", "Accept-Datetime-Format": "UNIX"}
+    start, rows = time.time() - DAYS * 86400, []
+    while True:
+        r = requests.get(OANDA_URL.format(inst), headers=h, timeout=30,
+                         params={"granularity": "M5", "price": "M", "from": str(int(start)), "count": 5000})
+        r.raise_for_status()
+        cs = r.json().get("candles", [])
+        rows += [(float(c["time"]), float(c["mid"]["o"]), float(c["mid"]["h"]), float(c["mid"]["l"]),
+                  float(c["mid"]["c"]), int(c.get("volume", 0))) for c in cs if c.get("complete")]
+        if len(cs) < 5000: break
+        start = float(cs[-1]["time"]) + 1
+    if not rows: return pd.DataFrame()
+    idx = pd.to_datetime([x[0] for x in rows], unit="s", utc=True)
+    return pd.DataFrame([x[1:] for x in rows], index=idx, columns=["Open", "High", "Low", "Close", "Volume"])
+
+def yahoo_df(sym):
+    import yfinance as yf
+    return yf.Ticker(sym).history(period="60d", interval="5m", auto_adjust=False)
+
 def load(s):
-    df = yf.Ticker(s["yf"]).history(period="60d", interval="5m", auto_adjust=False)
+    df = oanda_df(s["oa"]) if OANDA else yahoo_df(s["yf"])
     if df.empty: return [], []
+    df = df[~df.index.duplicated(keep="last")].sort_index()
     df = df[df.index + pd.Timedelta(minutes=5) <= pd.Timestamp.now(tz="UTC")]  # solo velas cerradas
     loc = df.index.tz_convert(s["tz"])
     mins = loc.hour * 60 + loc.minute
@@ -128,12 +152,17 @@ def send(text):
     except Exception as e:
         print("Telegram:", e); return False
 
+HKEYS = ("st", "d", "sig_t", "et", "e", "sl", "tp", "risk", "x", "why", "xt", "r")
+
 def main():
     try: state = json.load(open("state.json"))
     except Exception: state = {"sent": []}
     try: old = json.load(open("data.json"))["symbols"]
     except Exception: old = {}
-    out = {"updated": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"), "cfg": CFG, "symbols": {}}
+    try: hist = json.load(open("history.json"))
+    except Exception: hist = {}
+    out = {"updated": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+           "src": "OANDA" if OANDA else "Yahoo", "cfg": CFG, "symbols": {}}
     for name, s in SYMBOLS.items():
         try: bars, days = load(s)
         except Exception as e:
@@ -145,9 +174,21 @@ def main():
             continue
         out["symbols"][name] = {"label": s["label"], "open": hm(s["open"]), "close": hm(s["close"]),
                                 "days": days, "bars": bars}
-        if days[-1] != dt.datetime.now(ZoneInfo(s["tz"])).strftime("%Y-%m-%d"): continue
         A = atr(bars, CFG["atr_len"])
-        day = [(gi, b) for gi, b in enumerate(bars) if b[6] == len(days) - 1]
+        groups = {}
+        for gi, b in enumerate(bars): groups.setdefault(b[6], []).append((gi, b))
+        today = dt.datetime.now(ZoneInfo(s["tz"])).strftime("%Y-%m-%d")
+        # Historial permanente: IB y operaciones de cada sesión ya cerrada (no se borra al pasar 60 días)
+        for di_, dstr in enumerate(days):
+            day = groups.get(di_)
+            if not day: continue
+            if dstr == today and day[-1][1][5] < hm(s["close"]) - 5: continue  # sesión aún abierta
+            rr = run_day(day, A, CFG, hm(s["open"]), False)
+            if not rr: continue
+            hist.setdefault(name, {})[dstr] = {"H": rr["H"], "L": rr["L"], "M": rr["M"], "trades": [
+                dict({k: t.get(k) for k in HKEYS}, id=f"{name}|{t['sig_t']}|{t['st']}{t['d']}") for t in rr["trades"]]}
+        if days[-1] != today: continue
+        day = groups[len(days) - 1]
         live = day[-1][1][5] < hm(s["close"]) - 5
         r = run_day(day, A, CFG, hm(s["open"]), live)
         if not r: continue
@@ -163,6 +204,7 @@ def main():
     state["sent"] = state["sent"][-300:]
     json.dump(out, open("data.json", "w"), separators=(",", ":"))
     json.dump(state, open("state.json", "w"))
+    json.dump(hist, open("history.json", "w"), separators=(",", ":"))
 
 if __name__ == "__main__":
     main()
